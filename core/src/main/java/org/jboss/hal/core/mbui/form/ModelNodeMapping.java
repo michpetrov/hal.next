@@ -46,6 +46,7 @@ class ModelNodeMapping<T extends ModelNode> extends DefaultMapping<T> {
     @NonNls private static final Logger logger = LoggerFactory.getLogger(ModelNodeMapping.class);
 
     private final List<Property> attributeDescriptions;
+    private Form<T> currentForm;
 
     ModelNodeMapping(final List<Property> attributeDescriptions) {
         this.attributeDescriptions = attributeDescriptions;
@@ -54,6 +55,7 @@ class ModelNodeMapping<T extends ModelNode> extends DefaultMapping<T> {
     @Override
     @SuppressWarnings("unchecked")
     public void populateFormItems(final T model, final Form<T> form) {
+        currentForm = form;
         for (FormItem formItem : form.getBoundFormItems()) {
             formItem.clearError();
 
@@ -62,7 +64,7 @@ class ModelNodeMapping<T extends ModelNode> extends DefaultMapping<T> {
                 ModelNode attributeDescription = findAttribute(name);
                 if (attributeDescription == null) {
                     logger.error("{}: Unable to populate form item '{}': No attribute description found in\n{}",
-                            id(form), name, attributeDescriptions);
+                            id(currentForm), name, attributeDescriptions);
                     continue;
                 }
 
@@ -74,7 +76,7 @@ class ModelNodeMapping<T extends ModelNode> extends DefaultMapping<T> {
                     } else {
                         logger.error(
                                 "{}: Unable to populate form item '{}': Value is an expression, but form item does not support expressions",
-                                id(form), name);
+                                id(currentForm), name);
                         continue;
                     }
 
@@ -82,64 +84,7 @@ class ModelNodeMapping<T extends ModelNode> extends DefaultMapping<T> {
                     formItem.setValue(value);
 
                 } else {
-                    ModelType descriptionType = attributeDescription.get(TYPE).asType();
-                    switch (descriptionType) {
-                        case BOOLEAN:
-                            formItem.setValue(value.asBoolean());
-                            break;
-
-                        case INT:
-                            // NumberFormItem uses *always* long
-                            try {
-                                formItem.setValue((long) value.asInt());
-                            } catch (IllegalArgumentException e) {
-                                logger.error(
-                                        "{}: Unable to populate form item '{}': Metadata says it's an INT, but value is not '{}'",
-                                        id(form), name, value.asString());
-
-                            }
-                            break;
-                        case BIG_INTEGER:
-                        case LONG:
-                            try {
-                                formItem.setValue(value.asLong());
-                            } catch (IllegalArgumentException e) {
-                                logger.error(
-                                        "{}: Unable to populate form item '{}': Metadata says it's a {}, but value is not '{}'",
-                                        id(form), name, descriptionType.name(), value.asString());
-                            }
-                            break;
-
-                        case LIST:
-                            List<String> list = value.asList().stream().map(ModelNode::asString).collect(toList());
-                            formItem.setValue(list);
-                            break;
-
-                        case OBJECT:
-                            List<Property> properties = value.asPropertyList();
-                            Map<String, String> map = new HashMap<>();
-                            for (Property property : properties) {
-                                map.put(property.getName(), property.getValue().asString());
-                            }
-                            formItem.setValue(map);
-                            break;
-
-                        case STRING:
-                            formItem.setValue(value.asString());
-                            break;
-
-                        // unsupported types
-                        case BIG_DECIMAL:
-                        case DOUBLE:
-                        case BYTES:
-                        case EXPRESSION:
-                        case PROPERTY:
-                        case TYPE:
-                        case UNDEFINED:
-                            logger.warn("{}: populating form field '{}' of type '{}' not implemented", id(form), name,
-                                    descriptionType);
-                            break;
-                    }
+                    populateItemByType(model.get(name), formItem);
                 }
                 formItem.setUndefined(false);
 
@@ -147,6 +92,69 @@ class ModelNodeMapping<T extends ModelNode> extends DefaultMapping<T> {
                 formItem.clearValue();
                 formItem.setUndefined(true);
             }
+        }
+    }
+
+    public void populateItemByType(ModelNode value, FormItem formItem) {
+        String name = formItem.getName();
+        ModelNode attributeDescription = findAttribute(name);
+        ModelType descriptionType = attributeDescription.get(TYPE).asType();
+        switch (descriptionType) {
+            case BOOLEAN:
+                formItem.setValue(value.asBoolean());
+                break;
+
+            case INT:
+                // NumberFormItem uses *always* long
+                try {
+                    formItem.setValue((long) value.asInt());
+                } catch (IllegalArgumentException e) {
+                    logger.error(
+                            "{}: Unable to populate form item '{}': Metadata says it's an INT, but value is not '{}'",
+                            id(currentForm), formItem.getName(), value.asString());
+
+                }
+                break;
+            case BIG_INTEGER:
+            case LONG:
+                try {
+                    formItem.setValue(value.asLong());
+                } catch (IllegalArgumentException e) {
+                    logger.error(
+                            "{}: Unable to populate form item '{}': Metadata says it's a {}, but value is not '{}'",
+                            id(currentForm), formItem.getName(), descriptionType.name(), value.asString());
+                }
+                break;
+
+            case LIST:
+                List<String> list = value.asList().stream().map(ModelNode::asString).collect(toList());
+                formItem.setValue(list);
+                break;
+
+            case OBJECT:
+                List<Property> properties = value.asPropertyList();
+                Map<String, String> map = new HashMap<>();
+                for (Property property : properties) {
+                    map.put(property.getName(), property.getValue().asString());
+                }
+                formItem.setValue(map);
+                break;
+
+            case STRING:
+                formItem.setValue(value.asString());
+                break;
+
+            // unsupported types
+            case BIG_DECIMAL:
+            case DOUBLE:
+            case BYTES:
+            case EXPRESSION:
+            case PROPERTY:
+            case TYPE:
+            case UNDEFINED:
+                logger.warn("{}: populating form field '{}' of type '{}' not implemented", id(currentForm), formItem.getName(),
+                        descriptionType);
+                break;
         }
     }
 
@@ -170,77 +178,85 @@ class ModelNodeMapping<T extends ModelNode> extends DefaultMapping<T> {
                     model.get(name).set(((ModelNodeItem) formItem).getValue());
 
                 } else {
-                    switch (type) {
-                        case BOOLEAN:
-                            model.get(name).set((Boolean) value);
-                            break;
 
-                        case BIG_INTEGER:
-                        case INT:
-                        case LONG:
-                            Long longValue = (Long) value;
-                            if (longValue == null) {
-                                failSafeRemove(model, name);
-                            } else {
-                                if (type == BIG_INTEGER) {
-                                    model.get(name).set(BigInteger.valueOf(longValue));
-                                } else if (type == INT) {
-                                    model.get(name).set(longValue.intValue());
-                                } else {
-                                    model.get(name).set(longValue);
-                                }
-                            }
-                            break;
-
-                        case LIST:
-                            List<String> list = (List<String>) value;
-                            if (list.isEmpty()) {
-                                failSafeRemove(model, name);
-                            } else {
-                                ModelNode listNode = new ModelNode();
-                                for (String s : list) {
-                                    listNode.add(s);
-                                }
-                                model.get(name).set(listNode);
-                            }
-                            break;
-
-                        case OBJECT:
-                            Map<String, String> map = (Map<String, String>) value;
-                            if (map.isEmpty()) {
-                                failSafeRemove(model, name);
-                            } else {
-                                ModelNode mapNode = new ModelNode();
-                                for (Map.Entry<String, String> entry : map.entrySet()) {
-                                    mapNode.get(entry.getKey()).set(entry.getValue());
-                                }
-                                model.get(name).set(mapNode);
-                            }
-                            break;
-
-                        case STRING:
-                            String stringValue = String.valueOf(value);
-                            if (Strings.isNullOrEmpty(stringValue)) {
-                                failSafeRemove(model, name);
-                            } else {
-                                model.get(name).set(stringValue);
-                            }
-                            break;
-
-                        // unsupported types
-                        case BIG_DECIMAL:
-                        case BYTES:
-                        case DOUBLE:
-                        case EXPRESSION:
-                        case PROPERTY:
-                        case TYPE:
-                        case UNDEFINED:
-                            logger.warn("{}: persisting form field '{}' to type '{}' not implemented", id(form), name,
-                                    type);
-                            break;
-                    }
                 }
             }
+        }
+    }
+
+    public void persistValueByType(final T model, FormItem formItem) {
+        String name = formItem.getName();
+        ModelNode attributeDescription = findAttribute(name);
+        ModelType type = attributeDescription.get(TYPE).asType();
+        Object value = formItem.getValue();
+        switch (type) {
+            case BOOLEAN:
+                model.get(name).set((Boolean) value);
+                break;
+
+            case BIG_INTEGER:
+            case INT:
+            case LONG:
+                Long longValue = (Long) value;
+                if (longValue == null) {
+                    failSafeRemove(model, name);
+                } else {
+                    if (type == BIG_INTEGER) {
+                        model.get(name).set(BigInteger.valueOf(longValue));
+                    } else if (type == INT) {
+                        model.get(name).set(longValue.intValue());
+                    } else {
+                        model.get(name).set(longValue);
+                    }
+                }
+                break;
+
+            case LIST:
+                List<String> list = (List<String>) value;
+                if (list.isEmpty()) {
+                    failSafeRemove(model, name);
+                } else {
+                    ModelNode listNode = new ModelNode();
+                    for (String s : list) {
+                        listNode.add(s);
+                    }
+                    model.get(name).set(listNode);
+                }
+                break;
+
+            case OBJECT:
+                Map<String, String> map = (Map<String, String>) value;
+                if (map.isEmpty()) {
+                    failSafeRemove(model, name);
+                } else {
+                    ModelNode mapNode = new ModelNode();
+                    for (Map.Entry<String, String> entry : map.entrySet()) {
+                        mapNode.get(entry.getKey()).set(entry.getValue());
+                    }
+                    model.get(name).set(mapNode);
+                }
+                break;
+
+            case STRING:
+                String stringValue = String.valueOf(value);
+                if (Strings.isNullOrEmpty(stringValue)) {
+                    failSafeRemove(model, name);
+                } else {
+                    model.get(name).set(stringValue);
+                }
+                break;
+
+            // unsupported types
+            case BIG_DECIMAL:
+            case BYTES:
+            case DOUBLE:
+            case EXPRESSION:
+            case PROPERTY:
+            case TYPE:
+            case UNDEFINED:
+                logger.warn("{}: persisting form field '{}' to type '{}' not implemented", id(currentForm), name,
+                        type);
+                break;
         }
     }
 

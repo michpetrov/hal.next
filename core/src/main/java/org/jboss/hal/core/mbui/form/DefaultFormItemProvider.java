@@ -159,6 +159,8 @@ class DefaultFormItemProvider implements FormItemProvider {
                             propertiesItem.setDefaultValue(defaultValues);
                         }
                         formItem = propertiesItem;
+                    } else {
+                        formItem = new ObjectFormItem(property, this);
                     }
                     break;
                 }
