@@ -23,6 +23,7 @@ public interface Messages extends com.google.gwt.i18n.client.Messages {
     // ------------------------------------------------------ safe HTML
 
     SafeHtml accessMechanismLabel(String name);
+    SafeHtml activationSuccess();
     SafeHtml addError(String type, String identity, String resource, String error);
     SafeHtml addHaPolicy();
     SafeHtml addKeyStoreError(String name);
@@ -264,6 +265,7 @@ public interface Messages extends com.google.gwt.i18n.client.Messages {
     SafeHtml noReferenceServerPreview(String deployment, String attribute1, String attribute2, String serverGroup, String historyToken);
     SafeHtml noReset();
     SafeHtml noResource();
+    SafeHtml noStatistics();
     SafeHtml normalLogFile(String size);
     SafeHtml noSecuritySettingSelected();
     SafeHtml noSelectedPatch();
